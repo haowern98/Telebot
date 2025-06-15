@@ -13,6 +13,8 @@ import asyncio
 import logging
 import os
 from telegram.ext import Application
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 import sys
 import os
@@ -34,13 +36,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    """Simple health check handler for Render"""
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def log_message(self, format, *args):
+        # Suppress default HTTP server logs
+        return
+
+def start_health_server():
+    """Start health check server for Render"""
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    logger.info(f"Health check server starting on port {port}")
+    server.serve_forever()
+
 def main():
     """Main function to start the bot"""
     
     # Check if bot token is configured
     if not BOT_TOKEN:
         print("❌ Error: BOT_TOKEN not found!")
-        print("Please set your bot token in config.py")
+        print("Please set your bot token in the Render environment variables")
         print("Get a token from @BotFather on Telegram")
         return
     
@@ -54,6 +79,10 @@ def main():
     print("=" * 50)
     
     try:
+        # Start health check server in background thread for Render
+        health_thread = threading.Thread(target=start_health_server, daemon=True)
+        health_thread.start()
+        
         # Create and start the bot
         bot = CallSchedulerBot(BOT_TOKEN)
         
@@ -71,7 +100,7 @@ def main():
         logger.error(f"❌ Error starting bot: {e}")
         print(f"❌ Error: {e}")
         print("\n💡 Troubleshooting:")
-        print("1. Check your bot token in config.py")
+        print("1. Check your bot token in Render environment variables")
         print("2. Ensure you have internet connection")
         print("3. Check the logs in bot.log for details")
 
