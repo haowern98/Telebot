@@ -632,7 +632,7 @@ class CallSchedulerBot:
             else:
                 self.storage.update_user_settings(user_id, {'username': message_text})
                 await update.message.reply_text(f"✅ Username set to {message_text}")
-            
+                
         elif field == 'phone':
             # Allow clearing phone number
             if message_text.lower() in ['none', 'delete', 'clear']:
@@ -644,6 +644,47 @@ class CallSchedulerBot:
             else:
                 self.storage.update_user_settings(user_id, {'phone': message_text})
                 await update.message.reply_text(f"✅ Phone set to {message_text}")
+        
+        elif field == 'timezone':
+            # Validate and set timezone
+            try:
+                import pytz
+                # Test if timezone is valid
+                pytz.timezone(message_text)
+                
+                # Update user settings
+                self.storage.update_user_settings(user_id, {'timezone': message_text})
+                
+                # Get current time in new timezone for confirmation
+                try:
+                    tz = pytz.timezone(message_text)
+                    current_time = datetime.now(tz)
+                    time_str = current_time.strftime("%H:%M:%S %Z")
+                    
+                    await update.message.reply_text(
+                        f"✅ **Timezone Updated!**\n\n"
+                        f"🌍 Timezone: {message_text}\n"
+                        f"🕐 Current time: {time_str}\n\n"
+                        f"All scheduled calls will now use this timezone."
+                    )
+                except:
+                    await update.message.reply_text(f"✅ Timezone set to {message_text}")
+                    
+            except pytz.exceptions.UnknownTimeZoneError:
+                await update.message.reply_text(
+                    f"❌ **Invalid timezone:** {message_text}\n\n"
+                    "Please use a valid timezone like:\n"
+                    "• Asia/Singapore\n"
+                    "• US/Eastern\n"
+                    "• Europe/London\n"
+                    "• Australia/Sydney\n"
+                    "• UTC\n\n"
+                    "Try again or check the Wikipedia link for more options."
+                )
+                return
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error setting timezone: {str(e)}")
+                return
         
         # Clear user state
         del self.user_states[user_id]
