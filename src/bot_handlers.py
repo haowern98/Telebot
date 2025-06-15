@@ -577,7 +577,6 @@ class CallSchedulerBot:
 
     async def list_calls_from_callback(self, query, context):
         """Handle list calls from callback"""
-        # Simulate the list command
         user_id = query.from_user.id
         user_calls = self.storage.get_user_calls(user_id)
         
@@ -586,9 +585,14 @@ class CallSchedulerBot:
         else:
             calls_text = "📋 **Your Scheduled Calls:**\n\n"
             for call_id, call_info in user_calls.items():
-                calls_text += f"• {call_id}: {call_info['time']} - {call_info['message'][:30]}...\n"
+                # Escape special Markdown characters
+                safe_call_id = call_id.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                safe_message = call_info['message'][:30].replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+                
+                calls_text += f"• {safe_call_id}: {call_info['time']} - {safe_message}...\n"
+            
             await query.edit_message_text(calls_text, parse_mode='Markdown')
-
+        
     async def test_call_from_callback(self, query, context):
         """Handle test call from callback"""
         user_id = query.from_user.id
