@@ -262,10 +262,38 @@ class CallSchedulerBot:
             await self.handle_settings_callback(query, context)
         elif data == "list_calls":
             await self.list_calls_from_callback(query, context)
+        elif data.startswith("tz_"):  
+            await self.handle_timezone_callback(query, context) 
         elif data == "test_call":
             await self.test_call_from_callback(query, context)
         else:
             await query.edit_message_text("❌ Unknown action. Please try again.")
+    
+    async def handle_timezone_callback(self, query, context):
+        """Handle timezone-related button callbacks"""
+        user_id = query.from_user.id
+        data = query.data
+        
+        if data == "tz_auto":
+            # Use auto-detected timezone
+            self.storage.update_user_settings(user_id, {'timezone': SYSTEM_TIMEZONE})
+            await query.edit_message_text(
+                f"✅ **Timezone Updated**\n\n"
+                f"Your timezone is now set to: **{SYSTEM_TIMEZONE}**\n"
+                f"All scheduled calls will use this timezone."
+            )
+        elif data == "tz_manual":
+            # Set user state for manual timezone input
+            self.user_states[user_id] = {
+                'action': 'settings',
+                'field': 'timezone',
+                'step': 'waiting_for_input'
+            }
+            await query.edit_message_text(
+                "🌍 **Manual Timezone Setup**\n\n"
+                "Enter your timezone (e.g., Asia/Singapore, US/Eastern, Europe/London):\n\n"
+                "You can find timezone names at: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+            )
     
     async def handle_schedule_callback(self, query, context):
         """Handle schedule-related button callbacks"""
