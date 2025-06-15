@@ -17,7 +17,7 @@ from typing import Dict, Any
 
 # Telegram Bot Token - Get this from @BotFather
 # IMPORTANT: Replace with your actual bot token
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8158192206:AAGUHuYtDcy7DnsDNVLEKF2zrnQ-EhYemFY")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Bot settings
 BOT_NAME = "Call Scheduler Bot"
