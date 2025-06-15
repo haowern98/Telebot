@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import schedule
 import pytz
+from concurrent.futures import ThreadPoolExecutor
 
 from config import *
 
@@ -42,6 +43,10 @@ class CallScheduler:
         # Track scheduled jobs
         self._scheduled_jobs = {}
         
+        # Event loop for async operations
+        self._loop = None
+        self._executor = ThreadPoolExecutor(max_workers=2)
+        
         logger.info("CallScheduler initialized")
         
     def _get_user_timezone(self, user_id: int) -> pytz.timezone:
@@ -60,20 +65,32 @@ class CallScheduler:
             call_type = call.type
             user_tz = self._get_user_timezone(call.user_id)
             
-            # Create job function
+            # Create job function that properly handles async
             def job():
-                asyncio.create_task(self._execute_call(call_id))
+                try:
+                    logger.info(f"Executing scheduled job for call {call_id}")
+                    # Run the async call execution in the event loop
+                    if self._loop and not self._loop.is_closed():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self._execute_call(call_id), self._loop
+                        )
+                        # Wait for completion with timeout
+                        future.result(timeout=CALL_EXECUTION_TIMEOUT)
+                    else:
+                        logger.error(f"No event loop available for call {call_id}")
+                except Exception as e:
+                    logger.error(f"Error in job execution for call {call_id}: {e}")
             
             # Schedule based on call type with timezone awareness
             if call_type == "daily":
                 schedule.every().day.at(call_time).do(job).tag(call_id)
-                logger.debug(f"Scheduled daily call {call_id} at {call_time} ({user_tz})")
+                logger.info(f"Scheduled daily call {call_id} at {call_time} ({user_tz})")
                 
             elif call_type == "weekly":
                 weekday = call.weekday.lower()
                 if weekday in VALID_WEEKDAYS:
                     getattr(schedule.every(), weekday).at(call_time).do(job).tag(call_id)
-                    logger.debug(f"Scheduled weekly call {call_id} on {weekday} at {call_time} ({user_tz})")
+                    logger.info(f"Scheduled weekly call {call_id} on {weekday} at {call_time} ({user_tz})")
                 else:
                     logger.error(f"Invalid weekday for call {call_id}: {weekday}")
                     return
@@ -89,8 +106,41 @@ class CallScheduler:
                     now_user_tz = datetime.now(user_tz)
                     
                     if call_datetime > now_user_tz:
-                        schedule.every().day.at(call_time).do(job).tag(call_id)
-                        logger.debug(f"Scheduled one-time call {call_id} for {call.date} at {call_time} ({user_tz})")
+                        # For one-time calls, we need a different approach
+                        # Schedule it to run daily but check the date in the job
+                        def one_time_job():
+                            try:
+                                # Check if today is the scheduled date
+                                today = datetime.now(user_tz).date()
+                                scheduled_date = datetime.strptime(call.date, DATE_FORMAT).date()
+                                
+                                if today == scheduled_date:
+                                    logger.info(f"Executing one-time call {call_id} for {call.date}")
+                                    # Execute the call
+                                    if self._loop and not self._loop.is_closed():
+                                        future = asyncio.run_coroutine_threadsafe(
+                                            self._execute_call(call_id), self._loop
+                                        )
+                                        future.result(timeout=CALL_EXECUTION_TIMEOUT)
+                                    
+                                    # Mark as inactive after execution
+                                    self.storage.update_scheduled_call(call_id, {"active": False})
+                                    # Remove from scheduler
+                                    schedule.clear(call_id)
+                                    if call_id in self._scheduled_jobs:
+                                        del self._scheduled_jobs[call_id]
+                                elif today > scheduled_date:
+                                    # Date has passed, mark as inactive
+                                    logger.info(f"One-time call {call_id} date has passed")
+                                    self.storage.update_scheduled_call(call_id, {"active": False})
+                                    schedule.clear(call_id)
+                                    if call_id in self._scheduled_jobs:
+                                        del self._scheduled_jobs[call_id]
+                            except Exception as e:
+                                logger.error(f"Error in one-time job for call {call_id}: {e}")
+                        
+                        schedule.every().day.at(call_time).do(one_time_job).tag(call_id)
+                        logger.info(f"Scheduled one-time call {call_id} for {call.date} at {call_time} ({user_tz})")
                     else:
                         # Time has passed, mark as inactive
                         self.storage.update_scheduled_call(call_id, {"active": False})
@@ -153,11 +203,18 @@ class CallScheduler:
         if self._scheduler_thread and self._scheduler_thread.is_alive():
             self._scheduler_thread.join(timeout=5)
         
+        # Shutdown executor
+        self._executor.shutdown(wait=False)
+        
         logger.info("Call scheduler stopped")
     
     def _scheduler_loop(self):
         """Main scheduler loop that runs in background thread"""
         logger.info("Scheduler loop started")
+        
+        # Create event loop for this thread
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
         
         while self._running and not self._stop_event.is_set():
             try:
@@ -173,6 +230,10 @@ class CallScheduler:
             except Exception as e:
                 logger.error(f"Error in scheduler loop: {e}")
                 time.sleep(5)  # Wait before retrying
+        
+        # Close the event loop
+        if self._loop:
+            self._loop.close()
         
         logger.info("Scheduler loop ended")
     
@@ -193,58 +254,6 @@ class CallScheduler:
             
         except Exception as e:
             logger.error(f"Error loading scheduled calls: {e}")
-    
-    def _schedule_call_job(self, call_id: str, call):
-        """Schedule a single call job"""
-        try:
-            call_time = call.time
-            call_type = call.type
-            
-            # Create job function
-            def job():
-                asyncio.create_task(self._execute_call(call_id))
-            
-            # Schedule based on call type
-            if call_type == "daily":
-                schedule.every().day.at(call_time).do(job).tag(call_id)
-                logger.debug(f"Scheduled daily call {call_id} at {call_time}")
-                
-            elif call_type == "weekly":
-                weekday = call.weekday.lower()
-                if weekday in VALID_WEEKDAYS:
-                    getattr(schedule.every(), weekday).at(call_time).do(job).tag(call_id)
-                    logger.debug(f"Scheduled weekly call {call_id} on {weekday} at {call_time}")
-                else:
-                    logger.error(f"Invalid weekday for call {call_id}: {weekday}")
-                    return
-                    
-            elif call_type == "once":
-                # For one-time calls, we need to check if the time has passed
-                if call.date:
-                    call_datetime = datetime.strptime(f"{call.date} {call_time}", f"{DATE_FORMAT} {TIME_FORMAT}")
-                    if call_datetime > datetime.now():
-                        # Schedule for specific date/time
-                        schedule.every().day.at(call_time).do(job).tag(call_id)
-                        logger.debug(f"Scheduled one-time call {call_id} for {call.date} at {call_time}")
-                    else:
-                        # Time has passed, mark as inactive
-                        self.storage.update_scheduled_call(call_id, {"active": False})
-                        logger.info(f"One-time call {call_id} time has passed, marked inactive")
-                        return
-                else:
-                    logger.error(f"One-time call {call_id} missing date")
-                    return
-            
-            # Track the job
-            self._scheduled_jobs[call_id] = {
-                "type": call_type,
-                "time": call_time,
-                "weekday": getattr(call, 'weekday', None),
-                "date": getattr(call, 'date', None)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error scheduling call {call_id}: {e}")
     
     async def _execute_call(self, call_id: str):
         """Execute a scheduled call"""
@@ -272,6 +281,7 @@ class CallScheduler:
             
             # Make the call
             if self.callmebot:
+                logger.info(f"Making call to {target[:10]}... with message: {call.message[:30]}...")
                 success = await self.callmebot.make_call(target, call.message, user_settings)
                 
                 if success:
@@ -279,10 +289,8 @@ class CallScheduler:
                     # Mark call as executed
                     self.storage.mark_call_executed(call_id)
                     
-                    # For one-time calls, remove from scheduler
-                    if call.type == "once":
-                        self._remove_call_job(call_id)
-                        
+                    # For one-time calls, the job itself handles deactivation
+                    
                 else:
                     logger.error(f"Call {call_id} execution failed")
                     
@@ -290,7 +298,7 @@ class CallScheduler:
                     if RETRY_FAILED_CALLS:
                         await self._retry_call(call_id, call)
             else:
-                logger.error("CallMeBot API not available")
+                logger.error("CallMeBot API not available - check if it's properly set")
                 
         except Exception as e:
             logger.error(f"Error executing call {call_id}: {e}")
@@ -365,7 +373,7 @@ class CallScheduler:
             # Remove from tracking
             if call_id in self._scheduled_jobs:
                 del self._scheduled_jobs[call_id]
-            
+                
         except Exception as e:
             logger.error(f"Error removing call job {call_id}: {e}")
     
@@ -390,7 +398,10 @@ class CallScheduler:
             "running": self._running,
             "scheduled_jobs": len(self._scheduled_jobs),
             "schedule_jobs": len(schedule.jobs),
-            "jobs_by_type": self._get_jobs_by_type()
+            "jobs_by_type": self._get_jobs_by_type(),
+            "callmebot_available": self.callmebot is not None,
+            "storage_available": self.storage is not None,
+            "loop_running": self._loop is not None and not self._loop.is_closed() if self._loop else False
         }
     
     def _get_jobs_by_type(self) -> Dict[str, int]:
@@ -407,40 +418,3 @@ class CallScheduler:
     def list_scheduled_jobs(self) -> Dict[str, Any]:
         """List all currently scheduled jobs"""
         return dict(self._scheduled_jobs)
-
-# Utility functions for testing and development
-def test_scheduler():
-    """Test function for the scheduler"""
-    print("Testing CallScheduler...")
-    
-    # Mock storage manager
-    class MockStorage:
-        def get_all_active_calls(self):
-            return {}
-        
-        def get_scheduled_call(self, call_id):
-            return None
-        
-        def get_user_settings(self, user_id):
-            return {}
-        
-        def mark_call_executed(self, call_id):
-            pass
-    
-    # Create scheduler
-    storage = MockStorage()
-    scheduler = CallScheduler(storage)
-    
-    # Test start/stop
-    scheduler.start()
-    print("Scheduler started")
-    
-    time.sleep(2)
-    
-    scheduler.stop()
-    print("Scheduler stopped")
-    
-    print("Test complete")
-
-if __name__ == "__main__":
-    test_scheduler()

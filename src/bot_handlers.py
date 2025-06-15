@@ -35,15 +35,13 @@ class CallSchedulerBot:
         self.bot_token = bot_token
         self.application = Application.builder().token(bot_token).build()
         
-        # TODO: Initialize components as we create them
+        # Initialize components in the correct order
         self.storage = StorageManager()
-        self.scheduler = CallScheduler(self.storage)
         self.callmebot = CallMeBotAPI()
+        self.scheduler = CallScheduler(self.storage, self.callmebot)  # Pass callmebot to scheduler
         
-        # For now, create placeholder objects
-        #self.storage = None
-        #self.scheduler = None
-        #self.callmebot = None
+        # Link callmebot to scheduler (for dependency injection)
+        self.scheduler.set_callmebot_api(self.callmebot)
         
         # Track user conversation states
         self.user_states: Dict[int, Dict[str, Any]] = {}
