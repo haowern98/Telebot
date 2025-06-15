@@ -1,0 +1,146 @@
+# Telegram Bot .gitignore for Render Deployment
+
+# =============================================
+# SENSITIVE DATA - NEVER COMMIT THESE!
+# =============================================
+
+# Bot token and API keys
+token.txt
+*.env
+.env*
+config_secrets.py
+
+# User data and scheduled calls
+data/
+logs/
+*.log
+bot.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# =============================================
+# PYTHON
+# =============================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments
+venv/
+venv*/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv
+
+# =============================================
+# DEVELOPMENT FILES
+# =============================================
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Temporary files
+*.tmp
+*.temp
+temp_*
+*temp*
+
+# =============================================
+# PROJECT SPECIFIC
+# =============================================
+
+# Test files you created
+check_imports.py
+simple_test.py
+test_bot_creation.py
+detailed_test.py
+test_url.py
+check_timezone.py
+test_*.py
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Local configuration (if you create any)
+local_config.py
+dev_config.py
+
+# =============================================
+# WHAT TO INCLUDE (DON'T IGNORE)
+# =============================================
+
+# These files SHOULD be committed:
+# src/
+# requirements.txt
+# Procfile
+# render.yaml
+# README.md
+# .gitignore (this file)
+
+# Note: Your bot token will be set as environment variable in Render
+# so it won't be in your code files
