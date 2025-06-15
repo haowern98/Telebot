@@ -591,7 +591,7 @@ class CallSchedulerBot:
                 
                 calls_text += f"• {safe_call_id}: {call_info['time']} - {safe_message}...\n"
             
-            await query.edit_message_text(calls_text, parse_mode='Markdown')
+            await query.edit_message_text(calls_text)
         
     async def test_call_from_callback(self, query, context):
         """Handle test call from callback"""
